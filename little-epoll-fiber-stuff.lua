@@ -11,6 +11,10 @@ struct epoll_event {
     uint32_t     events;    /* Epoll events */
     epoll_data_t data;      /* User data variable */
 };
+static const int EPOLL_CTL_ADD = 1;	/* Add a file descriptor to the interface.  */
+static const int EPOLL_CTL_DEL = 2;	/* Remove a file descriptor from the interface.  */
+static const int EPOLL_CTL_MOD = 3;	/* Change file descriptor epoll_event structure.  */
+static const int EPOLLIN = 0x001;
 int epoll_ctl(int epfd, int op, int fd, struct epoll_event *event);
 int epoll_wait(int epfd, struct epoll_event *events,
                int maxevents, int timeout);
@@ -53,52 +57,47 @@ fiber.await = function(fd)
    -- rearm
    local ev = ffi.new('struct epoll_event')
    ev.data.u32 = coroutine.id(co)
+   ev.events = ffi.C.EPOLLIN
    ffi.C.epoll_ctl(fiber._epfd, ffi.C.EPOLL_CTL_ADD, fd, ev)
 
-   -- TODO: yield
    coroutine.yield()
-end
-fiber.sleep = function(us)
-   -- FIXME: it's just await on a timerfd
-   local fd
-   fiber.await(fd)
 end
 
 fiber.runloop = function()
    fiber._epfd = ffi.C.epoll_create1(0)
    cassert(fiber._epfd ~= -1)
+   local events = ffi.new('struct epoll_event[1024]')
    while true do
       for _, co in ipairs(fiber._fibers_to_resume) do
          coroutine.resume(co)
       end
       fiber._fibers_to_resume = {}
 
-      local numevents = ffi.C.epoll_wait(fiber._epfd, events, 1024, 500)
+      local numevents = ffi.C.epoll_wait(fiber._epfd, events, 1024, 200)
       for i = 0, numevents - 1 do
          local ev = events[i]
          table.insert(fiber._fibers_to_resume, fiber._fibers[ev.data.u32])
       end
-      
    end
 end
 
 -- Usage:
 
 fiber.dispatch(function()
-      print('hi')
-      
       local timerfd = ffi.C.timerfd_create(ffi.C.CLOCK_MONOTONIC, 0)
       local function sleep(ns)
          local spec = ffi.new('struct itimerspec', {it_value={tv_nsec=ns}})
          ffi.C.timerfd_settime(timerfd, 0, spec, nil)
-         local buf = ffi.new('uint64_t[1]')
-         cassert(ffi.C.read(timerfd, buf, ffi.sizeof(buf)) > 0)
+         -- local buf = ffi.new('uint64_t[1]')
+         -- cassert(ffi.C.read(timerfd, buf, ffi.sizeof(buf)) > 0)
+         fiber.await(timerfd)
       end
 
       print('hello')
 
       sleep(500000000)
 
+      print('0.5 seconds later')
       print('bye!')
 end)
 
