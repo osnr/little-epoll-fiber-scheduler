@@ -47,12 +47,14 @@ coroutine.id = function(co) return tonumber(tostring(co):sub(8)) end
 
 local fiber = {
    _fibers={}, -- Map<id, coroutine>
-   _fibers_to_resume={} -- Queue<coroutine>
+   _fibers_to_resume={}, -- Queue<coroutine>
+   _num_fibers=0
 }
 fiber.dispatch = function(f)
    local co = coroutine.create(f)
    fiber._fibers[coroutine.id(co)] = co
    table.insert(fiber._fibers_to_resume, co)
+   fiber._num_fibers = fiber._num_fibers + 1
 end
 fiber.await_add = function(fd)
    local co = coroutine.running()
@@ -80,6 +82,12 @@ fiber.runloop = function()
       for _, co in ipairs(fiber._fibers_to_resume) do
          local ok, err = coroutine.resume(co)
          if not ok then error(err) end
+
+         if coroutine.status(co) == 'dead' then
+            fiber._fibers[coroutine.id(co)] = nil
+            fiber._num_fibers = fiber._num_fibers - 1
+            if fiber._num_fibers <= 0 then os.exit() end
+         end
       end
       fiber._fibers_to_resume = {}
 
@@ -93,6 +101,14 @@ end
 
 -- Usage:
 
+local start = os.time()
+local function printt(s)
+   print(string.format("%.2f", os.time() - start), s)
+end
+
+-- These are 2 concurrent fibers that print and sleep and print.
+-- They should be able to interleave properly.
+
 fiber.dispatch(function()
       local timerfd = ffi.C.timerfd_create(ffi.C.CLOCK_MONOTONIC, 0)
       fiber.await_add(timerfd)
@@ -102,20 +118,39 @@ fiber.dispatch(function()
          fiber.await_rearm(timerfd)
          fiber.await()
 
-         -- do i need to read this?
-         local buf = ffi.new('uint64_t[1]')
-         cassert(ffi.C.read(timerfd, buf, ffi.sizeof(buf)) > 0)
+         -- do i need to read this? (apparently not?)
+         -- local buf = ffi.new('uint64_t[1]')
+         -- cassert(ffi.C.read(timerfd, buf, ffi.sizeof(buf)) > 0)
       end
 
-      print('hello')
+      printt('hello')
 
-      sleep(0.5)
+      sleep(1)
 
-      print("... it's been 0.5 seconds")
+      printt("... it's been 1 second")
       
+      sleep(5)
+
+      printt("... it's been another 5 seconds")
+end)
+
+fiber.dispatch(function()
+      local timerfd = ffi.C.timerfd_create(ffi.C.CLOCK_MONOTONIC, 0)
+      fiber.await_add(timerfd)
+      local function sleep(s)
+         local spec = ffi.new('struct itimerspec', {it_value={tv_sec=math.floor(s), tv_nsec=math.floor((s-math.floor(s))*1e9)}})
+         cassert(ffi.C.timerfd_settime(timerfd, 0, spec, nil) == 0)
+         fiber.await_rearm(timerfd)
+         fiber.await()
+      end
+
       sleep(2)
 
-      print("... it's been another 2 seconds")
+      printt('\t[hi! 2s in]')
+
+      sleep(3)
+
+      printt("\t[hi again! 2s + 3s in]")
 end)
 
 fiber.runloop()
