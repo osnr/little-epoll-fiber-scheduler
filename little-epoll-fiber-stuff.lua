@@ -1,5 +1,7 @@
 local ffi = require 'ffi'
 ffi.cdef[[
+char *strerror(int errnum);
+
 int epoll_create1(int flags);
 typedef union epoll_data {
     void    *ptr;
@@ -59,7 +61,7 @@ fiber.await = function(fd)
    local ev = ffi.new('struct epoll_event')
    ev.data.u32 = coroutine.id(co)
    ev.events = bit.bor(ffi.C.EPOLLIN, ffi.C.EPOLLONESHOT)
-   cassert(ffi.C.epoll_ctl(fiber._epfd, ffi.C.EPOLL_CTL_ADD, fd, ev) == 0)
+   cassert(ffi.C.epoll_ctl(fiber._epfd, ffi.C.EPOLL_CTL_ADD, fd, ev) == 0)      
 
    coroutine.yield()
 end
@@ -70,12 +72,12 @@ fiber.runloop = function()
    local events = ffi.new('struct epoll_event[1024]')
    while true do
       for _, co in ipairs(fiber._fibers_to_resume) do
-         coroutine.resume(co)
+         local ok, err = coroutine.resume(co)
+         if not ok then error(err) end
       end
       fiber._fibers_to_resume = {}
 
       local numevents = ffi.C.epoll_wait(fiber._epfd, events, 1024, 200)
-      print(numevents)
       for i = 0, numevents - 1 do
          local ev = events[i]
          table.insert(fiber._fibers_to_resume, fiber._fibers[ev.data.u32])
@@ -90,20 +92,22 @@ fiber.dispatch(function()
       local function sleep(ns)
          local spec = ffi.new('struct itimerspec', {it_value={tv_nsec=ns}})
          cassert(ffi.C.timerfd_settime(timerfd, 0, spec, nil) == 0)
-         -- local buf = ffi.new('uint64_t[1]')
-         -- cassert(ffi.C.read(timerfd, buf, ffi.sizeof(buf)) > 0)
          fiber.await(timerfd)
+
+         -- do i need to read this?
+         local buf = ffi.new('uint64_t[1]')
+         cassert(ffi.C.read(timerfd, buf, ffi.sizeof(buf)) > 0)
       end
 
       print('hello')
 
       sleep(500000000)
 
-      print('0.5 seconds later')
+      print("... it's been 0.5 seconds")
       
-      sleep(500000000)
+      sleep(2000000000)
 
-      print('bye!')
+      print("... it's been another 2 seconds")
 end)
 
 fiber.runloop()
