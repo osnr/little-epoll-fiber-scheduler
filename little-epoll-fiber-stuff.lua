@@ -89,8 +89,8 @@ end
 
 fiber.dispatch(function()
       local timerfd = ffi.C.timerfd_create(ffi.C.CLOCK_MONOTONIC, 0)
-      local function sleep(ns)
-         local spec = ffi.new('struct itimerspec', {it_value={tv_nsec=ns}})
+      local function sleep(s)
+         local spec = ffi.new('struct itimerspec', {it_value={tv_sec=math.floor(s), tv_nsec=math.floor((s-math.floor(s))*1e9)}})
          cassert(ffi.C.timerfd_settime(timerfd, 0, spec, nil) == 0)
          fiber.await(timerfd)
 
@@ -101,11 +101,11 @@ fiber.dispatch(function()
 
       print('hello')
 
-      sleep(500000000)
+      sleep(0.5)
 
       print("... it's been 0.5 seconds")
       
-      sleep(2000000000)
+      sleep(2)
 
       print("... it's been another 2 seconds")
 end)
