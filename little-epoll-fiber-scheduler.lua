@@ -123,15 +123,13 @@ fiber.dispatch(function()
          -- cassert(ffi.C.read(timerfd, buf, ffi.sizeof(buf)) > 0)
       end
 
-      printt('hello')
+      printt('A: hello')
 
       sleep(1)
-
-      printt("... it's been 1 second")
+      printt("A: it's been 1 second")
       
       sleep(5)
-
-      printt("... it's been another 5 seconds")
+      printt("A: it's been another 5 seconds")
 end)
 
 fiber.dispatch(function()
@@ -145,12 +143,10 @@ fiber.dispatch(function()
       end
 
       sleep(2)
-
-      printt('\t[hi! 2s in]')
+      printt('\t[B: hi! 2s in]')
 
       sleep(3)
-
-      printt("\t[hi again! 2s + 3s in]")
+      printt("\t[B: hi again! 2s + 3s in]")
 end)
 
 fiber.runloop()
