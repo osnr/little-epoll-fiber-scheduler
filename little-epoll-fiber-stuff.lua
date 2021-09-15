@@ -54,17 +54,23 @@ fiber.dispatch = function(f)
    fiber._fibers[coroutine.id(co)] = co
    table.insert(fiber._fibers_to_resume, co)
 end
-fiber.await = function(fd)
+fiber.await_add = function(fd)
    local co = coroutine.running()
 
-   -- rearm
    local ev = ffi.new('struct epoll_event')
    ev.data.u32 = coroutine.id(co)
    ev.events = bit.bor(ffi.C.EPOLLIN, ffi.C.EPOLLONESHOT)
-   cassert(ffi.C.epoll_ctl(fiber._epfd, ffi.C.EPOLL_CTL_ADD, fd, ev) == 0)      
-
-   coroutine.yield()
+   cassert(ffi.C.epoll_ctl(fiber._epfd, ffi.C.EPOLL_CTL_ADD, fd, ev) == 0)
 end
+fiber.await_rearm = function(fd)
+   local co = coroutine.running()
+   
+   local ev = ffi.new('struct epoll_event')
+   ev.data.u32 = coroutine.id(co)
+   ev.events = bit.bor(ffi.C.EPOLLIN, ffi.C.EPOLLONESHOT)
+   cassert(ffi.C.epoll_ctl(fiber._epfd, ffi.C.EPOLL_CTL_MOD, fd, ev) == 0)
+end
+fiber.await = function() coroutine.yield() end
 
 fiber.runloop = function()
    fiber._epfd = ffi.C.epoll_create1(0)
@@ -89,10 +95,12 @@ end
 
 fiber.dispatch(function()
       local timerfd = ffi.C.timerfd_create(ffi.C.CLOCK_MONOTONIC, 0)
+      fiber.await_add(timerfd)
       local function sleep(s)
          local spec = ffi.new('struct itimerspec', {it_value={tv_sec=math.floor(s), tv_nsec=math.floor((s-math.floor(s))*1e9)}})
          cassert(ffi.C.timerfd_settime(timerfd, 0, spec, nil) == 0)
-         fiber.await(timerfd)
+         fiber.await_rearm(timerfd)
+         fiber.await()
 
          -- do i need to read this?
          local buf = ffi.new('uint64_t[1]')
